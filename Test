@@ -1,0 +1,20 @@
+from fastapi import FastAPI, WebSocket
+from fastapi.responses import FileResponse
+import uvicorn
+
+app = FastAPI()
+
+@app.get("/")
+async def get_index():
+    return FileResponse("static/index.html")
+
+@app.websocket("/chat")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    await websocket.send_text("🔹 Welcome to the API Testing Chatbot!")
+    while True:
+        data = await websocket.receive_text()
+        await websocket.send_text(f"🤖 Echo: {data}")  # Replace with chatbot logic
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
