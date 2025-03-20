@@ -1,49 +1,54 @@
-import yaml
-import asyncio
-from api_executor import APIExecutor
-from api_workflow import APIWorkflow
-from chatbot_ui import send_execution_update
-from openapi_parser import extract_openapi_details
-from llm_sequence_generator import generate_api_execution_order
+import uvicorn
+from fastapi import FastAPI, WebSocket
+from openapi_parser import OpenAPIParser
+from llm_sequence_generator import LlmSequenceGenerator
+from utils.result_storage import ResultStorage
 
-async def main():
-    # Load OpenAPI spec
-    openapi_file = input("Enter OpenAPI YAML file path: ")
-    with open(openapi_file, "r") as f:
-        openapi_spec = yaml.safe_load(f)
+app = FastAPI()
 
-    # Extract API details
-    base_url, headers, api_map = extract_openapi_details(openapi_spec)
+# Azure OpenAI credentials (Replace with actual values)
+AZURE_DEPLOYMENT_NAME = "your-deployment-name"
+AZURE_API_BASE = "https://your-endpoint.openai.azure.com/"
+AZURE_API_KEY = "your-subscription-key"
 
-    # Ask user for additional headers
-    user_headers = input("Enter any additional headers (API key, cookies) as JSON: ")
-    if user_headers:
-        headers.update(yaml.safe_load(user_headers))
+# Initialize components
+openapi_parser = OpenAPIParser("openapi_specs/petstore.yaml")
+llm_generator = LlmSequenceGenerator(
+    deployment_name=AZURE_DEPLOYMENT_NAME,
+    api_base=AZURE_API_BASE,
+    api_key=AZURE_API_KEY
+)
+result_storage = ResultStorage()  # Tracks execution results & created IDs
 
-    # Generate API execution sequence
-    execution_sequence = generate_api_execution_order(api_map)
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket-based chatbot for real-time API execution updates."""
+    await websocket.accept()
+    await websocket.send_text("🟢 Chatbot started! Send 'start' to load OpenAPI & execute APIs.")
 
-    # Initialize API Executor
-    api_executor = APIExecutor(base_url, headers, api_map)
+    while True:
+        data = await websocket.receive_text()
 
-    # Setup workflow
-    workflow = APIWorkflow(api_executor, execution_sequence)
-    workflow.build_workflow()
+        if data.lower() == "start":
+            await websocket.send_text("📂 Loading OpenAPI spec...")
+            api_endpoints = openapi_parser.get_all_endpoints()
 
-    # Execute workflow & update chatbot
-    print("\nStarting API Execution...\n")
-    results = workflow.run()
+            await websocket.send_text(f"✅ Extracted {len(api_endpoints)} endpoints. Determining execution order...")
+            execution_order = llm_generator.generate_api_sequence(api_endpoints)
 
-    # Send execution updates to chatbot UI
-    for api_key, result in results.items():
-        await send_execution_update(api_key, result["status_code"], result["response_time"])
+            response = "\n✅ API Execution Sequence:\n" + "\n".join(f"{i+1}. {ep}" for i, ep in enumerate(execution_order))
+            await websocket.send_text(response)
 
-    # Ask for load testing
-    run_load_test = input("Do you want to run a load test? (yes/no): ").strip().lower()
-    if run_load_test == "yes":
-        num_users = int(input("Enter number of users: "))
-        print(f"\nRunning load test with {num_users} users...\n")
-        await asyncio.gather(*[workflow.run() for _ in range(num_users)])
+            # Store results for later reporting
+            result_storage.save_execution_order(execution_order)
 
+        elif data.lower() == "results":
+            results = result_storage.get_execution_results()
+            await websocket.send_text(f"📊 Stored Execution Results:\n{results}")
+
+        else:
+            await websocket.send_text("⚠️ Unknown command! Send 'start' to begin or 'results' to see past executions.")
+
+# Run FastAPI server
 if __name__ == "__main__":
-    asyncio.run(main())
+    uvicorn.run(app, host="0.0.0.0", port=8000)
