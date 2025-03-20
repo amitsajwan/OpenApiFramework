@@ -29,10 +29,8 @@ class LLMSequenceGenerator:
             input_variables=["api_list"]
         )
 
-        # Convert API map to a newline-separated string
         api_list = "\n".join(api_map.keys())
 
-        # Runnable sequence for structured execution
         sequence = (
             RunnablePassthrough()
             | RunnableLambda(lambda _: {"api_list": api_list})
@@ -41,5 +39,31 @@ class LLMSequenceGenerator:
             | RunnableLambda(lambda response: json.loads(response.content).get("execution_order", []))
         )
 
-        return sequence.invoke({})  # Invoke the sequence and return the ordered list
+        return sequence.invoke({})  # Return ordered API list
 
+    def generate_payload(self, endpoint_details):
+        """Generate a sample JSON payload for POST/PUT requests."""
+        prompt = PromptTemplate(
+            template="""
+            Given the following OpenAPI request schema, generate a sample JSON payload.
+            Ensure the response is a valid JSON object.
+
+            Schema:
+            {schema}
+
+            Output JSON:
+            """,
+            input_variables=["schema"]
+        )
+
+        schema = json.dumps(endpoint_details, indent=2)  # Convert schema to JSON string
+
+        sequence = (
+            RunnablePassthrough()
+            | RunnableLambda(lambda _: {"schema": schema})
+            | prompt
+            | self.llm
+            | RunnableLambda(lambda response: json.loads(response.content))
+        )
+
+        return sequence.invoke({})
