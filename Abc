@@ -1,0 +1,49 @@
+from langchain.schema.runnable import RunnableSequence
+from langchain.chat_models import AzureChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+
+class LLMSequenceGenerator:
+    def __init__(self, azure_endpoint, azure_key, deployment_name):
+        self.llm = AzureChatOpenAI(
+            openai_api_base=azure_endpoint,
+            openai_api_version="2023-07-01-preview",
+            deployment_name=deployment_name,
+            openai_api_key=azure_key,
+            temperature=0.3
+        )
+
+    def generate_sequence(self, api_map):
+        """
+        Determines the correct execution sequence of APIs based on HTTP method dependencies.
+        :param api_map: Dictionary of APIs with method types.
+        :return: Ordered list of API execution paths.
+        """
+
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", "You are an expert API tester. Your job is to determine the correct sequence for API execution."),
+            ("human", 
+             """Given the following APIs and their HTTP methods, order them correctly for testing. 
+             - POST should be first (creates a resource).
+             - GET should come after POST if it needs the created resource.
+             - PUT should follow GET if it updates the resource.
+             - DELETE should be last if it removes a resource.
+             
+             APIs:\n{api_list}
+
+             Return only a JSON array of ordered API paths.
+             """)
+        ])
+
+        # Convert API map to string format for LLM
+        api_list_str = "\n".join([f"{details['method']} {details['path']}" for details in api_map.values()])
+
+        chain = RunnableSequence(prompt_template | self.llm)
+        response = chain.invoke({"api_list": api_list_str})
+
+        # Ensure structured JSON output
+        try:
+            ordered_apis = eval(response.content)  # Expecting JSON array
+        except:
+            ordered_apis = list(api_map.keys())  # Fallback to unordered APIs
+        
+        return ordered_apis
