@@ -1,7 +1,7 @@
+import json
 from langchain.schema.runnable import RunnablePassthrough
 from langchain.chat_models import AzureChatOpenAI
 from langchain.prompts import ChatPromptTemplate
-import json
 
 class LLMSequenceGenerator:
     def __init__(self, azure_endpoint, azure_key, deployment_name):
@@ -16,26 +16,37 @@ class LLMSequenceGenerator:
     def generate_sequence(self, api_map):
         """
         Determines the correct execution sequence of APIs based on dependencies.
+        Ensures POST and GET are never lost.
         :param api_map: Dictionary of API details (method + path).
         :return: Ordered list of API execution paths.
         """
+        api_list = [
+            {"method": details["method"], "path": details["path"]}
+            for details in api_map.values()
+        ]
+
+        api_list_str = json.dumps(api_list, indent=2)  # Properly formatted JSON
+
+        print(f"🔹 Sent to LLM:\n{api_list_str}")  # Debugging log
+
         prompt_template = ChatPromptTemplate.from_messages([
-            ("system", "You are an expert API tester. Your job is to determine the correct sequence for API execution."),
+            ("system", "You are an expert API tester. Your task is to return a JSON array of APIs in the correct order."),
             ("human", 
-             """Given the following APIs and their HTTP methods, order them correctly for testing. 
-             - POST should be first (creates a resource).
-             - GET should come after POST if it needs the created resource.
-             - PUT should follow GET if it updates the resource.
-             - DELETE should be last if it removes a resource.
-             
+             """Given these APIs in JSON format, return them in the correct execution order.
+             - **NEVER exclude any API** from the response.
+             - The order should follow API dependencies:
+               1️⃣ **POST first** (creates resource)
+               2️⃣ **GET next** (retrieves resource)
+               3️⃣ **PUT after GET** (updates resource)
+               4️⃣ **DELETE last** (removes resource)
+               5️⃣ **Independent GETs can be at the end.**
+
+             Ensure that **POST and GET are always included** in the output.
+
              APIs:\n{api_list}
 
-             Return only a JSON array of ordered API paths.
-             """)
+             **Return JSON only, no explanations.**""")
         ])
-
-        # Convert API map to string format for LLM
-        api_list_str = "\n".join([f"{details['method']} {details['path']}" for details in api_map.values()])
 
         chain = (
             RunnablePassthrough.assign(api_list=lambda _: api_list_str)
@@ -45,10 +56,20 @@ class LLMSequenceGenerator:
 
         response = chain.invoke({})
 
-        # Ensure structured JSON output
         try:
             ordered_apis = json.loads(response.content)  # Expecting JSON array
+            
+            # Check if POST and GET exist; if not, retry
+            post_exists = any(api["method"] == "POST" for api in ordered_apis)
+            get_exists = any(api["method"] == "GET" for api in ordered_apis)
+
+            if not post_exists or not get_exists:
+                print(f"⚠️ POST or GET missing, falling back to manual sorting!")
+                ordered_apis = sorted(api_list, key=lambda x: ["POST", "GET", "PUT", "DELETE"].index(x["method"]))
+
         except:
-            ordered_apis = list(api_map.keys())  # Fallback to unordered APIs
-        
+            print(f"⚠️ LLM Response (Invalid JSON): {response.content}")
+            ordered_apis = sorted(api_list, key=lambda x: ["POST", "GET", "PUT", "DELETE"].index(x["method"]))
+
+        print(f"✅ Ordered APIs:\n{json.dumps(ordered_apis, indent=2)}")  # Debugging output
         return ordered_apis
