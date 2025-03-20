@@ -1,46 +1,39 @@
-from langchain.chat_models import ChatOpenAI
-from langchain.schema import SystemMessage, HumanMessage
 import json
+from langchain.chat_models import AzureChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
 
-class LLMSequenceGenerator:
-    def __init__(self, model_name="gpt-4-turbo"):
-        """Initialize LLM with structured response enforcement."""
-        self.llm = ChatOpenAI(model_name=model_name, temperature=0)
+# Initialize Azure OpenAI
+llm = AzureChatOpenAI(
+    deployment_name="your-deployment-name",  # Found in Azure portal
+    openai_api_base="https://your-endpoint.openai.azure.com/",
+    openai_api_key="your-subscription-key",
+    openai_api_version="2023-03-15-preview"
+)
 
-    def generate_execution_order(self, api_map):
-        """Determine API execution order using LLM."""
-        api_list = list(api_map.keys())  # Extract API keys
+# Define a prompt template ensuring JSON output
+prompt_template = PromptTemplate(
+    input_variables=["api_endpoints"],
+    template="""
+    Given the following API endpoints: {api_endpoints}, determine the correct execution order.
+    Ensure the response is in **strict JSON format**:
+    ```json
+    {{"execution_order": ["POST /pet", "GET /pet/{petId}", "PUT /pet", "DELETE /pet/{petId}"]}}
+    ```
+    """
+)
 
-        # Define structured prompt for LLM
-        prompt = f"""
-        You are an API test execution planner. Given the following API endpoints, determine the correct execution order.
-        Consider dependencies (e.g., `POST` should run before `GET`, `DELETE` should be last). 
+def generate_api_sequence(api_endpoints):
+    """Uses Azure OpenAI to determine the correct API execution sequence."""
+    
+    chain = LLMChain(llm=llm, prompt=prompt_template)
 
-        APIs: {api_list}
+    response = chain.run({"api_endpoints": api_endpoints})
+    
+    try:
+        sequence = json.loads(response)["execution_order"]
+    except json.JSONDecodeError:
+        print("⚠️ Error: LLM did not return valid JSON. Using default order.")
+        sequence = api_endpoints  # Fallback to the provided order
 
-        Provide the response **only** as a structured JSON list, like:
-        {{"execution_order": ["POST /users", "GET /users", "DELETE /users"]}}
-        """
-
-        response = self.llm.invoke([SystemMessage(content="Plan API execution"), HumanMessage(content=prompt)])
-        
-        try:
-            execution_order = json.loads(response.content)["execution_order"]
-            return execution_order
-        except (json.JSONDecodeError, KeyError):
-            raise ValueError("Invalid LLM response format. Ensure JSON structure.")
-
-# Usage example
-if __name__ == "__main__":
-    sample_api_map = {
-        "POST /pet": {},
-        "GET /pet/{petId}": {},
-        "PUT /pet": {},
-        "DELETE /pet/{petId}": {},
-        "GET /store/inventory": {}
-    }
-
-    generator = LLMSequenceGenerator()
-    order = generator.generate_execution_order(sample_api_map)
-    print("Execution Order:", order)
-  
+    return sequence
