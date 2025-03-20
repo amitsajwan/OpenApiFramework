@@ -1,28 +1,14 @@
-# LangGraph API Testing Framework
 
-## Features
-- Automated API execution using OpenAPI spec.
-- Execution sequence determined by LLM.
-- WebSocket-based chatbot UI for real-time execution updates.
-- Human-in-the-loop intervention for critical steps.
-- Memory tracking for execution results and created IDs.
-- Asynchronous execution with LangGraph.
-- Load testing support.
+# LangGraph-Based Automated API Testing Framework
+
+## Overview
+Automates API testing using OpenAPI specifications with intelligent sequence execution, async workflows, and chatbot-based human intervention.
 
 ## Installation
-```sh
+```bash
+git clone <repository-url>
+cd api_testing_framework
 pip install -r requirements.txt
 ```
-
-## Running the Server
-```sh
-uvicorn api.main:app --reload
-```
-
-## Using the Chatbot UI
-Open `ui/chatbot_ui.html` in your browser.
-
-## Running Tests
-```sh
-pytest tests/
-```
+...
+    
