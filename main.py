@@ -21,7 +21,6 @@ app.add_middleware(
 # Global instances
 parser = OpenAPIParser("openapi_specs/petstore.yaml")  # Load OpenAPI spec
 llm_sequence_generator = LLMSequenceGenerator()
-api_executor = APIExecutor()
 result_storage = ResultStorage()
 
 
@@ -56,8 +55,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.send_text(f"✅ Execution sequence:\n{api_sequence}")
 
+    # Initialize APIExecutor properly
+    api_executor = APIExecutor(base_url, headers)
+
     # Execute APIs in sequence
-    execution_results = await api_executor.execute_sequence(api_sequence, api_map, base_url, headers)
+    execution_results = await api_executor.execute_sequence(api_sequence, api_map)
 
     # Store results for reporting
     result_storage.save_results(execution_results)
