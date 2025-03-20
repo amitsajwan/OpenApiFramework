@@ -1,6 +1,7 @@
-from langchain.schema.runnable import RunnableSequence
+from langchain.schema.runnable import RunnablePassthrough
 from langchain.chat_models import AzureChatOpenAI
 from langchain.prompts import ChatPromptTemplate
+import json
 
 class LLMSequenceGenerator:
     def __init__(self, azure_endpoint, azure_key, deployment_name):
@@ -14,11 +15,10 @@ class LLMSequenceGenerator:
 
     def generate_sequence(self, api_map):
         """
-        Determines the correct execution sequence of APIs based on HTTP method dependencies.
-        :param api_map: Dictionary of APIs with method types.
+        Determines the correct execution sequence of APIs based on dependencies.
+        :param api_map: Dictionary of API details (method + path).
         :return: Ordered list of API execution paths.
         """
-
         prompt_template = ChatPromptTemplate.from_messages([
             ("system", "You are an expert API tester. Your job is to determine the correct sequence for API execution."),
             ("human", 
@@ -37,12 +37,17 @@ class LLMSequenceGenerator:
         # Convert API map to string format for LLM
         api_list_str = "\n".join([f"{details['method']} {details['path']}" for details in api_map.values()])
 
-        chain = RunnableSequence(prompt_template | self.llm)
-        response = chain.invoke({"api_list": api_list_str})
+        chain = (
+            RunnablePassthrough.assign(api_list=lambda _: api_list_str)
+            | prompt_template
+            | self.llm
+        )
+
+        response = chain.invoke({})
 
         # Ensure structured JSON output
         try:
-            ordered_apis = eval(response.content)  # Expecting JSON array
+            ordered_apis = json.loads(response.content)  # Expecting JSON array
         except:
             ordered_apis = list(api_map.keys())  # Fallback to unordered APIs
         
