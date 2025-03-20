@@ -1,41 +1,45 @@
 import json
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough, RunnableSequence
 from langchain.chat_models import AzureChatOpenAI
 from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
 
-class LlmSequenceGenerator:
-    """Generates API execution sequence using Azure OpenAI."""
-
-    def __init__(self, deployment_name, api_base, api_key, api_version="2023-03-15-preview"):
-        """Initialize Azure OpenAI with the provided credentials."""
+class LLMSequenceGenerator:
+    def __init__(self, azure_endpoint: str, azure_key: str, deployment_name: str):
+        """Initialize Azure OpenAI chat model."""
         self.llm = AzureChatOpenAI(
+            openai_api_base=azure_endpoint,
+            openai_api_version="2023-03-15-preview",
             deployment_name=deployment_name,
-            openai_api_base=api_base,
-            openai_api_key=api_key,
-            openai_api_version=api_version
+            openai_api_key=azure_key
         )
 
-        # Define a structured JSON prompt template
-        self.prompt_template = PromptTemplate(
-            input_variables=["api_endpoints"],
+    def generate_sequence(self, api_map):
+        """Generate API execution order using LLM and RunnableSequence."""
+        prompt = PromptTemplate(
             template="""
-            Given the following API endpoints: {api_endpoints}, determine the correct execution order.
-            Ensure the response is in **strict JSON format**:
-            ```json
-            {{"execution_order": ["POST /pet", "GET /pet/{petId}", "PUT /pet", "DELETE /pet/{petId}"]}}
-            ```
-            """
+            Given the following OpenAPI endpoints, determine the correct execution order.
+            Always return JSON in this format:
+            {{
+                "execution_order": ["POST /pet", "GET /pet/{petId}", "PUT /pet", "DELETE /pet/{petId}"]
+            }}
+
+            Endpoints:
+            {api_list}
+            """,
+            input_variables=["api_list"]
         )
 
-    def generate_api_sequence(self, api_endpoints):
-        """Uses Azure OpenAI to determine the correct API execution sequence."""
-        chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
-        response = chain.run({"api_endpoints": api_endpoints})
-        
-        try:
-            sequence = json.loads(response)["execution_order"]
-        except json.JSONDecodeError:
-            print("⚠️ Error: LLM did not return valid JSON. Using default order.")
-            sequence = api_endpoints  # Fallback to provided order
+        # Convert API map to a newline-separated string
+        api_list = "\n".join(api_map.keys())
 
-        return sequence
+        # Runnable sequence for structured execution
+        sequence = (
+            RunnablePassthrough()
+            | RunnableLambda(lambda _: {"api_list": api_list})
+            | prompt
+            | self.llm
+            | RunnableLambda(lambda response: json.loads(response.content).get("execution_order", []))
+        )
+
+        return sequence.invoke({})  # Invoke the sequence and return the ordered list
+
