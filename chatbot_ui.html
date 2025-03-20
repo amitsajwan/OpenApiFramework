@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test Chatbot</title>
+</head>
+<body>
+    <h2>API Test Execution</h2>
+    <button onclick="sendMessage()">Start Execution</button>
+    <div id="messages"></div>
+
+    <script>
+        let ws = new WebSocket("ws://localhost:8000/ws");
+
+        ws.onmessage = function(event) {
+            let messages = document.getElementById("messages");
+            messages.innerHTML += "<p>" + event.data + "</p>";
+        };
+
+        function sendMessage() {
+            ws.send("Run API Tests");
+        }
+    </script>
+</body>
+</html>
