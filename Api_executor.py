@@ -1,51 +1,45 @@
+import json
 import requests
-import time
+from llm_sequence_generator import LLMSequenceGenerator
 
-class APIExecutor:
-    def __init__(self, base_url, headers, api_map):
+class ApiExecutor:
+    def __init__(self, base_url, headers, azure_endpoint, azure_key, deployment_name):
+        """
+        Initialize API executor with base URL, headers, and LLM for payload generation.
+        """
         self.base_url = base_url
         self.headers = headers
-        self.api_map = api_map
-        self.execution_results = {}
+        self.sequence_generator = LLMSequenceGenerator(azure_endpoint, azure_key, deployment_name)
 
-    def send_request(self, method, endpoint, payload=None, params=None):
-        """Send an API request and return response details."""
-        url = f"{self.base_url}{endpoint}"
-        start_time = time.time()
+    def execute_api_sequence(self, api_map):
+        """
+        Execute the API sequence determined by LLM.
+        """
+        execution_order = self.sequence_generator.generate_sequence(api_map)
 
-        response = requests.request(
-            method=method,
-            url=url,
-            headers=self.headers,
-            json=payload,
-            params=params
-        )
+        for api in execution_order:
+            method, path = api.split(" ", 1)
+            url = f"{self.base_url}{path}"
+            details = api_map.get(api, {})
 
-        elapsed_time = round(time.time() - start_time, 3)
-
-        result = {
-            "status_code": response.status_code,
-            "response_time": elapsed_time,
-            "response_body": response.json() if response.headers.get("Content-Type") == "application/json" else response.text
-        }
-
-        return result
-
-    def execute_api_sequence(self, sequence):
-        """Execute APIs in the given sequence."""
-        print("\nExecuting API sequence...\n")
-        for api_key in sequence:
-            method, endpoint = api_key.split(" ", 1)
-            api_details = self.api_map.get(api_key, {})
-
+            # Generate payload for POST/PUT
             payload = None
             if method in ["POST", "PUT"]:
-                payload = generate_payload(api_details.get("requestBody", {}), self.api_map)
+                payload = self.sequence_generator.generate_payload(details.get("requestBody", {}))
 
-            result = self.send_request(method, endpoint, payload=payload)
-            self.execution_results[api_key] = result
-            
-            print(f"{method} {endpoint} → Status: {result['status_code']}, Time: {result['response_time']}s")
+            response = self._make_request(method, url, payload)
+            print(f"{method} {url} → Status: {response.status_code}, Response: {response.json()}")
 
-        return self.execution_results
-      
+    def _make_request(self, method, url, payload=None):
+        """
+        Make an HTTP request with optional payload.
+        """
+        try:
+            response = requests.request(
+                method, url, headers=self.headers, json=payload
+            )
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            print(f"Error: {e}")
+            return None
