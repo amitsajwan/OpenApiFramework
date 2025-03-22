@@ -2,6 +2,10 @@ from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langchain.tools import tool
 from api_executor import APIExecutor
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 memory = MemorySaver()
 
@@ -14,33 +18,11 @@ class APIWorkflow:
     @tool
     def execute_api(api_key: str):
         """Execute a single API request and store the result."""
-        result = api_executor.send_request(*api_key.split(" ", 1))
-        memory.save(api_key, result)
-        return result
-
-    @tool
-    def user_intervention(api_key: str):
-        """Ask the user whether to proceed at critical steps."""
-        decision = input(f"Proceed with {api_key}? (yes/no): ")
-        return decision.lower() == "yes"
-
-    def build_workflow(self):
-        """Create LangGraph workflow with execution order."""
-        prev_node = None
-        for api_key in self.sequence:
-            node = self.workflow.add_node(api_key, self.execute_api, api_key=api_key)
-
-            if "POST" in api_key or "DELETE" in api_key:
-                intervention_node = self.workflow.add_node(f"intervene_{api_key}", self.user_intervention, api_key=api_key)
-                self.workflow.add_edge(intervention_node, node)
-
-            if prev_node:
-                self.workflow.add_edge(prev_node, node)
-
-            prev_node = node
-
-    def run(self):
-        """Compile and execute the workflow."""
-        self.workflow.compile()
-        self.workflow.invoke()
-      
+        try:
+            result = api_executor.send_request(*api_key.split(" ", 1))
+            memory.save(api_key, result)
+            logging.info(f"Executed API: {api_key} -> Result: {result}")
+            return result
+        except Exception as e:
+            logging.error(f"Error executing API {api_key}: {str(e)}")
+            return {"error": str(e)}

@@ -1,57 +1,32 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import HTMLResponse
-import asyncio
-import json
 
 app = FastAPI()
-clients = []
 
 @app.get("/")
 async def get():
-    """Serve a simple chatbot UI."""
+    """Serve a simple chatbot UI with Bootstrap styling."""
     return HTMLResponse("""
     <html>
     <head>
+        <title>API Workflow Chat</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
         <script>
             var ws = new WebSocket("ws://localhost:8000/ws");
             ws.onmessage = function(event) {
                 var log = document.getElementById("log");
-                log.innerHTML += event.data + "<br>";
+                log.innerHTML += "<div class='alert alert-info'>" + event.data + "</div>";
             };
-            function sendMessage() {
-                var input = document.getElementById("messageText");
-                ws.send(input.value);
-                input.value = "";
-            }
         </script>
     </head>
-    <body>
-        <h2>API Test Execution</h2>
-        <div id="log"></div>
-        <input id="messageText" type="text">
-        <button onclick="sendMessage()">Send</button>
+    <body class="container mt-4">
+        <h2 class="text-center">API Workflow Chat</h2>
+        <div id="log" class="border p-3" style="height: 300px; overflow-y: auto;"></div>
     </body>
     </html>
     """)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """Handle real-time chatbot updates."""
     await websocket.accept()
-    clients.append(websocket)
-    try:
-        while True:
-            data = await websocket.receive_text()
-            await broadcast(f"User: {data}")
-    except:
-        clients.remove(websocket)
-
-async def broadcast(message):
-    """Send messages to all connected clients."""
-    for client in clients:
-        await client.send_text(message)
-
-async def send_execution_update(api_key, status, time_taken):
-    """Send execution updates to the chatbot UI."""
-    message = f"Executed {api_key} → Status: {status}, Time: {time_taken}s"
-    await broadcast(message)
+    await websocket.send_text("WebSocket connected!")
