@@ -96,3 +96,73 @@ class OpenAPIParser:
             self.extract_api_endpoints()
         return self.api_map
 
+import yaml
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+class OpenAPIParser:
+    def __init__(self, openapi_file: str):
+        """
+        Initialize the parser with the path to the OpenAPI YAML file.
+        """
+        self.openapi_file = openapi_file
+        self.schema_definitions = {}
+        self.api_endpoints = {}
+
+    def load_openapi_spec(self):
+        """
+        Load and parse the OpenAPI YAML file.
+        """
+        try:
+            with open(self.openapi_file, "r", encoding="utf-8") as file:
+                spec = yaml.safe_load(file)
+                self.schema_definitions = spec.get("components", {}).get("schemas", {})
+                self.api_endpoints = spec.get("paths", {})
+                logging.info("OpenAPI spec loaded successfully.")
+        except Exception as e:
+            logging.error(f"Failed to load OpenAPI spec: {e}")
+
+    def resolve_schema(self, schema_name, depth=0):
+        """
+        Recursively resolves OpenAPI `$ref` schema references, `allOf`, `oneOf`, and `anyOf`.
+
+        :param schema_name: The schema name to resolve.
+        :param depth: Recursion depth to prevent infinite loops.
+        :return: The fully resolved schema.
+        """
+        if depth > 10:  # Prevent infinite loops
+            return {}
+
+        # Fetch schema definition
+        schema = self.schema_definitions.get(schema_name, {})
+        resolved_schema = {}
+
+        # If schema has 'allOf', merge all subschemas
+        if "allOf" in schema:
+            for subschema in schema["allOf"]:
+                ref_key = subschema.get("$ref", "").split("/")[-1] if "$ref" in subschema else None
+                resolved_part = self.resolve_schema(ref_key, depth + 1) if ref_key else subschema
+                resolved_schema.update(resolved_part)  # Merge properties
+
+        # Handle `oneOf` and `anyOf`: Pick the first valid schema
+        elif "oneOf" in schema or "anyOf" in schema:
+            options = schema.get("oneOf", schema.get("anyOf", []))
+            ref_key = options[0].get("$ref", "").split("/")[-1] if options and "$ref" in options[0] else None
+            return self.resolve_schema(ref_key, depth + 1) if ref_key else options[0]
+
+        # Process `properties`
+        if "properties" in schema:
+            for key, value in schema["properties"].items():
+                if "$ref" in value:
+                    ref_key = value["$ref"].split("/")[-1]
+                    resolved_schema[key] = self.resolve_schema(ref_key, depth + 1)
+                elif "enum" in value:
+                    resolved_schema[key] = value["enum"][0]  # Pick first enum value
+                else:
+                    resolved_schema[key] = value
+
+        return resolved_schema
+        
+
