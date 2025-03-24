@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,22 +9,31 @@
     <style>
         body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; }
         .container { display: flex; justify-content: space-between; padding: 20px; }
-        #chat { width: 40%; background: white; padding: 10px; border-radius: 5px; box-shadow: 0px 0px 10px #ccc; }
+        #chat, #graph { width: 48%; background: white; padding: 10px; border-radius: 5px; box-shadow: 0px 0px 10px #ccc; }
         #messages { height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: #f9f9f9; text-align: left; }
         button { margin-top: 10px; padding: 10px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
         button:hover { background: #0056b3; }
-        #graph { width: 55%; background: white; padding: 10px; border-radius: 5px; box-shadow: 0px 0px 10px #ccc; }
-        svg { width: 100%; height: 400px; border: 1px solid black; }
+        select, textarea { width: 100%; padding: 5px; margin-top: 5px; }
     </style>
 </head>
 <body>
 
     <h2>API Execution & Graph Visualization</h2>
+
     <div class="container">
         <div id="chat">
             <h3>Chat</h3>
             <div id="messages"></div>
-            <button onclick="startChat()">Start API Execution</button>
+
+            <h4>Select API Execution Sequence:</h4>
+            <select id="apiSequence" multiple></select>
+            <button onclick="confirmSequence()">Confirm Sequence</button>
+
+            <h4>Modify Payload (if needed):</h4>
+            <textarea id="payloadInput"></textarea>
+            <button onclick="confirmPayload()">Confirm Payload</button>
+
+            <button onclick="startExecution()" disabled id="startBtn">Start API Execution</button>
         </div>
 
         <div id="graph">
@@ -34,16 +44,59 @@
 
     <script>
         const ws = new WebSocket("ws://localhost:8000/chat");
+        let selectedApis = [];
+        let currentPayload = {};
+
+        ws.onopen = function() {
+            ws.send(JSON.stringify({ action: "list_apis" })); // Request API list
+        };
 
         ws.onmessage = function(event) {
             const msgDiv = document.getElementById("messages");
-            const msg = JSON.parse(event.data);
-            msgDiv.innerHTML += `<p>${msg.message || msg.api + " → " + msg.status}</p>`;
-            if (msg.api) updateGraph();
+            const data = JSON.parse(event.data);
+
+            if (data.message) {
+                msgDiv.innerHTML += `<p>${data.message}</p>`;
+            }
+
+            if (data.apis) {
+                const apiDropdown = document.getElementById("apiSequence");
+                apiDropdown.innerHTML = "";
+                data.apis.forEach(api => {
+                    const option = document.createElement("option");
+                    option.value = api;
+                    option.textContent = api;
+                    apiDropdown.appendChild(option);
+                });
+            }
+
+            if (data.payload) {
+                document.getElementById("payloadInput").value = JSON.stringify(data.payload, null, 2);
+                currentPayload = data.payload;
+            }
+
+            if (data.api) {
+                updateGraph();
+            }
         };
 
-        function startChat() {
-            ws.send("start");
+        function confirmSequence() {
+            selectedApis = Array.from(document.getElementById("apiSequence").selectedOptions).map(opt => opt.value);
+            ws.send(JSON.stringify({ action: "confirm_sequence", sequence: selectedApis }));
+            document.getElementById("startBtn").disabled = false;
+        }
+
+        function confirmPayload() {
+            try {
+                currentPayload = JSON.parse(document.getElementById("payloadInput").value);
+                ws.send(JSON.stringify({ action: "confirm_payload", payload: currentPayload }));
+            } catch (e) {
+                alert("Invalid JSON format.");
+            }
+        }
+
+        function startExecution() {
+            ws.send(JSON.stringify({ action: "start_execution" }));
         }
 
         function updateGraph() {
