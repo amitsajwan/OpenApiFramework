@@ -1,7 +1,9 @@
 import asyncio
+import time  # ✅ Added for execution time tracking
 import logging
 from api_executor import APIExecutor
 from workflow_manager import APIWorkflowManager
+from llm_sequence_generator import LLMSequenceGenerator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -9,17 +11,29 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 class APIWorkflow:
     def __init__(self, base_url, headers):
         """
-        Initializes the API workflow and delegates execution to APIWorkflowManager.
+        Initializes APIWorkflow and delegates execution to APIWorkflowManager.
         """
         self.api_executor = APIExecutor(base_url, headers)
-        self.workflow_manager = APIWorkflowManager(base_url, headers)  # ✅ Uses Workflow Manager
+        self.workflow_manager = APIWorkflowManager(base_url, headers)
+        self.llm_generator = LLMSequenceGenerator()  # ✅ Initializes LLM payload generator
 
     async def execute_api(self, method: str, endpoint: str, payload: dict = None, is_first_run=True):
         """
-        Executes an API request and tracks execution state.
+        Executes an API request, tracks execution time, and logs the result.
         """
+        start_time = time.time()  # ✅ Start execution timer
+
+        # ✅ Generate payload only for the first API call
+        if is_first_run and self.llm_generator:
+            payload = self.llm_generator.generate_payload(endpoint)  # ✅ LLM-generated payload
+        
+        else:
+            payload = self.prepare_payload(method, endpoint, payload)  # ✅ Placeholder resolution
+        
         result = await self.api_executor.execute_api(method, endpoint, payload)
-        logging.info(f"Executed API: {method} {endpoint} -> {result}")
+        result["execution_time"] = round(time.time() - start_time, 2)  # ✅ Calculate execution time
+
+        logging.info(f"✅ Executed {method} {endpoint} in {result['execution_time']}s -> Response: {result}")
         return result
 
     def prepare_payload(self, method, endpoint, original_payload):
@@ -43,7 +57,7 @@ class APIWorkflow:
         """
         Runs the API execution workflow using APIWorkflowManager.
         """
-        logging.info(f"Starting workflow execution for {len(api_sequence)} APIs.")
+        logging.info(f"🚀 Starting workflow execution for {len(api_sequence)} APIs.")
         return await self.workflow_manager.execute_workflow(api_sequence)
 
 # Example Usage
@@ -61,3 +75,4 @@ if __name__ == "__main__":
     ]
 
     asyncio.run(api_workflow.run_workflow(api_sequence))
+    
