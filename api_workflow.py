@@ -1,71 +1,30 @@
 import asyncio
-import json
-import time
 import logging
-import websockets
-from langgraph.graph import StateGraph
-from langgraph.checkpoint.memory import MemorySaver
-from langchain.tools import tool
 from api_executor import APIExecutor
-from llm_sequence_generator import LLMSequenceGenerator
+from workflow_manager import APIWorkflowManager
 
-# Setup logging
+# Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-memory = MemorySaver()
-
 class APIWorkflow:
-    def __init__(self, base_url, headers, websocket_uri="ws://localhost:8000/ws", use_llm=True):
+    def __init__(self, base_url, headers):
         """
-        Initialize API Workflow with APIExecutor, WebSocket, and LangGraph state management.
+        Initializes the API workflow and delegates execution to APIWorkflowManager.
         """
         self.api_executor = APIExecutor(base_url, headers)
-        self.llm_generator = LLMSequenceGenerator() if use_llm else None
-        self.workflow = StateGraph()
-        self.websocket_uri = websocket_uri  # WebSocket for real-time updates
-
-    async def send_graph_update(self, from_api, to_api):
-        """
-        Send API execution flow updates to WebSocket for real-time visualization.
-        """
-        try:
-            async with websockets.connect(self.websocket_uri) as websocket:
-                update = {"from": from_api, "to": to_api}
-                await websocket.send(json.dumps(update))
-                logging.info(f"Sent graph update: {from_api} -> {to_api}")
-        except Exception as e:
-            logging.error(f"WebSocket error while sending graph update: {str(e)}")
+        self.workflow_manager = APIWorkflowManager(base_url, headers)  # ✅ Uses Workflow Manager
 
     async def execute_api(self, method: str, endpoint: str, payload: dict = None, is_first_run=True):
         """
-        Execute an API request and send real-time execution updates.
+        Executes an API request and tracks execution state.
         """
-        start_time = time.time()
-
-        # Generate payload using LLM (first run) or use stored values
-        if is_first_run and self.llm_generator:
-            payload = self.llm_generator.generate_payload(endpoint)
-        else:
-            payload = self.prepare_payload(method, endpoint, payload)
-
-        try:
-            result = await self.api_executor.execute_api(method, endpoint, payload)
-            result["execution_time"] = round(time.time() - start_time, 2)
-
-            # Store response data for dependencies
-            memory.save(f"{method} {endpoint}", result)
-            if method == "POST" and "id" in result["response"]:
-                memory.save(f"created_id_{endpoint}", result["response"]["id"])
-
-            logging.info(f"Executed API: {method} {endpoint} -> {result}")
-            return result
-        except Exception as e:
-            logging.error(f"Error executing API {method} {endpoint}: {str(e)}")
-            return {"error": str(e), "execution_time": round(time.time() - start_time, 2)}
+        result = await self.api_executor.execute_api(method, endpoint, payload)
+        logging.info(f"Executed API: {method} {endpoint} -> {result}")
+        return result
 
     def prepare_payload(self, method, endpoint, original_payload):
         """
-        Modify payload by replacing placeholders with actual values from previous API responses.
+        Modifies payload by replacing placeholders with actual values from previous API responses.
         """
         if not original_payload:
             return None
@@ -74,69 +33,31 @@ class APIWorkflow:
         for key, value in modified_payload.items():
             if isinstance(value, str) and value.startswith("{{") and value.endswith("}}"):
                 placeholder = value.strip("{}")
-                stored_value = memory.get(f"created_id_{placeholder}")
+                stored_value = self.workflow_manager.execution_state.get_created_id(placeholder)
                 if stored_value:
                     modified_payload[key] = stored_value
         
         return modified_payload
 
-    def build_workflow(self, api_sequence, dependencies=None):
+    async def run_workflow(self, api_sequence):
         """
-        Build a LangGraph workflow dynamically, supporting parallel execution.
+        Runs the API execution workflow using APIWorkflowManager.
         """
-        executing_tasks = {}
+        logging.info(f"Starting workflow execution for {len(api_sequence)} APIs.")
+        return await self.workflow_manager.execute_workflow(api_sequence)
 
-        for api in api_sequence:
-            method, endpoint = api.split(" ", 1)
+# Example Usage
+if __name__ == "__main__":
+    base_url = "https://petstore.swagger.io/v2"
+    headers = {"Content-Type": "application/json"}
+    
+    api_workflow = APIWorkflow(base_url, headers)
 
-            async def node_fn(state, method=method, endpoint=endpoint):
-                """
-                Execute API inside LangGraph workflow and track execution results.
-                """
-                result = await self.execute_api(method, endpoint)
-                state["last_api"] = endpoint  # Track last executed API
-                return state
+    api_sequence = [
+        "POST /pet",
+        "GET /pet/{id}",
+        "PUT /pet/{id}",
+        "DELETE /pet/{id}"
+    ]
 
-            self.workflow.add_node(endpoint, node_fn)
-
-            if dependencies and endpoint in dependencies:
-                self.workflow.add_edge(dependencies[endpoint], endpoint)  # Enforce dependency
-            else:
-                executing_tasks[endpoint] = node_fn  # Allow parallel execution
-
-        # Execute independent APIs in parallel
-        async def run_parallel(state):
-            await asyncio.gather(*[fn(state) for fn in executing_tasks.values()])
-
-        self.workflow.add_node("parallel_execution", run_parallel)
-
-        return self.workflow
-
-    async def run_workflow(self, api_sequence, websocket=None):
-        """
-        Run the LangGraph workflow, send real-time execution updates & update visualization.
-        """
-        workflow = self.build_workflow(api_sequence)
-
-        async def execute_and_stream(state):
-            prev_api = None
-            for api in api_sequence:
-                result = await self.execute_api(*api.split(" ", 1))
-
-                # Send real-time update for dependencies
-                if prev_api:
-                    await self.send_graph_update(prev_api, api)  # ✅ FIXED: Now updates visualization dynamically
-                prev_api = api
-
-                # Stream execution progress
-                if websocket:
-                    try:
-                        await websocket.send_json({
-                            "api": api, 
-                            "status": result["status_code"], 
-                            "time": result["execution_time"]
-                        })
-                    except Exception as e:
-                        logging.error(f"WebSocket error while sending execution status: {str(e)}")
-
-        await execute_and_stream({})
+    asyncio.run(api_workflow.run_workflow(api_sequence))
