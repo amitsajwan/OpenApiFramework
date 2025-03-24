@@ -1,87 +1,66 @@
-import aiohttp
 import asyncio
 import logging
+from api_executor import APIExecutor
+from workflow_manager import APIWorkflowManager
+from llm_sequence_generator import LLMSequenceGenerator
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-class APIExecutor:
-    def __init__(self, base_url, headers=None, max_retries=3, timeout=10):
+class APIWorkflow:
+    def __init__(self, base_url, headers):
         """
-        Initialize the API executor with retry logic.
+        Initializes APIWorkflow and delegates execution to APIWorkflowManager.
+        """
+        self.api_executor = APIExecutor(base_url, headers)
+        self.workflow_manager = APIWorkflowManager(base_url, headers)
+        self.llm_generator = LLMSequenceGenerator()  # ✅ Initializes LLM payload generator
+
+    async def execute_api(self, method: str, endpoint: str, payload: dict = None, is_first_run=True):
+        """
+        Executes an API request and tracks execution state.
+        """
+        # ✅ Generate payload only for the first API call
+        if is_first_run and self.llm_generator:
+            payload = self.llm_generator.generate_payload(endpoint)  # ✅ This is where it's called
         
-        :param base_url: Base API URL
-        :param headers: Default headers for all requests
-        :param max_retries: Maximum retry attempts
-        :param timeout: Request timeout (seconds)
-        """
-        self.base_url = base_url
-        self.headers = headers if headers else {}
-        self.max_retries = max_retries
-        self.timeout = timeout
+        else:
+            payload = self.prepare_payload(method, endpoint, payload)  # ✅ Used in subsequent runs
 
-    async def execute_api(self, method, endpoint, payload=None):
+        result = await self.api_executor.execute_api(method, endpoint, payload)
+        logging.info(f"Executed API: {method} {endpoint} -> {result}")
+        return result
+
+    def prepare_payload(self, method, endpoint, original_payload):
         """
-        Execute an API request asynchronously with retry tracking.
+        Modifies payload by replacing placeholders with actual values from previous API responses.
+        """
+        if not original_payload:
+            return None
+
+        modified_payload = original_payload.copy()
+        for key, value in modified_payload.items():
+            if isinstance(value, str) and value.startswith("{{") and value.endswith("}}"):
+                placeholder = value.strip("{}")
+                stored_value = self.workflow_manager.execution_state.get_created_id(placeholder)
+                if stored_value:
+                    modified_payload[key] = stored_value
         
-        :return: Dictionary with status, response, and retry count
+        return modified_payload
+
+    async def run_workflow(self, api_sequence):
         """
-        url = f"{self.base_url}{endpoint}"
-        attempt = 0
-
-        while attempt < self.max_retries:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.request(
-                        method, url, json=payload, headers=self.headers, timeout=self.timeout
-                    ) as response:
-                        return {
-                            "api": f"{method} {endpoint}",
-                            "status_code": response.status,
-                            "response": await response.text(),
-                            "retries": attempt  # Track retry attempts
-                        }
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logging.warning(f"Attempt {attempt + 1}/{self.max_retries} failed for {url}: {str(e)}")
-                attempt += 1
-                await asyncio.sleep(2)  # Wait before retrying
-
-        logging.error(f"API request failed after {self.max_retries} retries: {url}")
-        return {
-            "api": f"{method} {endpoint}",
-            "status_code": "ERROR",
-            "response": f"Failed after {self.max_retries} retries",
-            "retries": self.max_retries
-        }
-
-    async def execute_multiple_apis(self, api_requests):
+        Runs the API execution workflow using APIWorkflowManager.
         """
-        Execute multiple API requests asynchronously in parallel.
-        
-        :return: List of API responses with retry tracking
-        """
-        tasks = [
-            self.execute_api(api["method"], api["endpoint"], api.get("payload"))
-            for api in api_requests
-        ]
-        return await asyncio.gather(*tasks)
+        logging.info(f"Starting workflow execution for {len(api_sequence)} APIs.")
+        return await self.workflow_manager.execute_workflow(api_sequence)
 
-# Example usage
+# Example Usage
 if __name__ == "__main__":
-    async def main():
-        executor = APIExecutor(base_url="https://petstore.swagger.io/v2", max_retries=3, timeout=5)
-
-        # Single API call example
-        result = await executor.execute_api("GET", "/pet/findByStatus?status=available")
-        print(result)
-
-        # Multiple API calls in parallel
-        requests = [
-            {"method": "GET", "endpoint": "/pet/1"},
-            {"method": "GET", "endpoint": "/store/inventory"}
-        ]
-        results = await executor.execute_multiple_apis(requests)
-        print(results)
-
-    asyncio.run(main())
+    base_url = "https://petstore.swagger.io/v2"
+    headers = {"Content-Type": "application/json"}
     
+    api_workflow = APIWorkflow(base_url, headers)
+
+    api_sequence = [
+        "POST /
