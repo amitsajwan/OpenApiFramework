@@ -65,24 +65,30 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"message": f"Available APIs: {list(api_map.keys())}"})
 
             elif "modify sequence" in user_input:
-                await websocket.send_json({"message": "Modify the DAG in the UI, then confirm."})
-                await websocket.send_json({"graph": visualizer.get_execution_graph_json()})  # ✅ Sends DAG to UI
+                graph_json = visualizer.get_execution_graph_json()
+                if not graph_json or "nodes" not in graph_json or "edges" not in graph_json:
+                    await websocket.send_json({"message": "❌ Error: Invalid DAG structure. Try again."})
+                else:
+                    await websocket.send_json({"message": "Modify the DAG in UI, then confirm.", "graph": json.loads(graph_json)})
 
             elif "show dag" in user_input:
                 graph_json = visualizer.get_execution_graph_json()
-                await websocket.send_json({"message": "Current DAG execution flow:", "graph": graph_json})  # ✅ Shows DAG
+                if not graph_json or "nodes" not in graph_json or "edges" not in graph_json:
+                    await websocket.send_json({"message": "❌ Error: No valid DAG found."})
+                else:
+                    await websocket.send_json({"message": "Current DAG execution flow:", "graph": json.loads(graph_json)})
 
             elif action == "confirm_sequence":
                 global dag_sequence
                 dag_sequence = data.get("sequence", [])
-                await websocket.send_json({"message": f"Sequence confirmed: {dag_sequence}"})
+                await websocket.send_json({"message": f"✅ Sequence confirmed: {dag_sequence}"})
 
             elif action == "start_execution":
                 if not dag_sequence:
-                    await websocket.send_json({"message": "No sequence selected! Modify the DAG first."})
+                    await websocket.send_json({"message": "⚠️ No sequence selected! Modify the DAG first."})
                     continue
 
-                await websocket.send_json({"message": f"Executing DAG sequence: {dag_sequence}"})
+                await websocket.send_json({"message": f"🚀 Executing DAG sequence: {dag_sequence}"})
                 results = await workflow_manager.execute_workflow(dag_sequence)
 
                 for api, result in results.items():
