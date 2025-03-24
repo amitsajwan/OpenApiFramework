@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API Testing Chat & DAG</title>
+    <title>API Execution & DAG</title>
     <script src="https://d3js.org/d3.v6.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre-d3/0.6.4/dagre-d3.min.js"></script>
     <style>
@@ -19,7 +19,7 @@
 </head>
 <body>
 
-    <h2>API Testing Chat & Execution Flow</h2>
+    <h2>API Execution & DAG Visualization</h2>
     <div class="container">
         <div id="chat">
             <h3>Chat</h3>
@@ -29,7 +29,7 @@
         </div>
 
         <div id="dag">
-            <h3>Execution Sequence (Drag to Reorder)</h3>
+            <h3>Execution Flow (Drag to Reorder)</h3>
             <svg></svg>
             <button onclick="confirmSequence()">Confirm & Run</button>
         </div>
@@ -68,7 +68,7 @@
         }
 
         function confirmSequence() {
-            ws.send(JSON.stringify({ action: "confirm_sequence", sequence: dagData.nodes }));
+            ws.send(JSON.stringify({ action: "confirm_sequence", sequence: dagData.nodes.map(n => n.id) }));
         }
 
         function renderDAG(data) {
@@ -79,13 +79,21 @@
 
             d3.select("svg").selectAll("*").remove();
 
-            const g = new dagreD3.graphlib.Graph().setGraph({});
-            data.nodes.forEach(node => g.setNode(node.id, { label: node.id, width: 100, height: 30 }));
-            data.edges.forEach(edge => g.setEdge(edge.source, edge.target));
+            const g = new dagreD3.graphlib.Graph().setGraph({});  // ✅ Ensure graph is initialized
 
-            const svg = d3.select("svg"), inner = svg.append("g");
+            data.nodes.forEach(node => {
+                g.setNode(node.id, { label: node.id, width: 100, height: 30 });  // ✅ Ensure each node has a label
+            });
+
+            data.edges.forEach(edge => {
+                g.setEdge(edge.source, edge.target);  // ✅ Ensure edges are properly set
+            });
+
+            const svg = d3.select("svg"),
+                  inner = svg.append("g");
+
             const render = new dagreD3.render();
-            render(inner, g);
+            render(inner, g);  // ✅ Ensure `render(inner, g)` has valid input
 
             svg.call(d3.zoom().on("zoom", ({ transform }) => inner.attr("transform", transform)));
         }
