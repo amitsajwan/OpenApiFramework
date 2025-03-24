@@ -1,20 +1,63 @@
-from fastapi import FastAPI, WebSocket
-from fastapi.responses import FileResponse
-import uvicorn
-
-app = FastAPI()
-
-@app.get("/")
-async def get_index():
-    return FileResponse("static/index.html")
-
 @app.websocket("/chat")
 async def websocket_endpoint(websocket: WebSocket):
+    """Handles WebSocket connections for real-time API execution updates."""
     await websocket.accept()
-    await websocket.send_text("🔹 Welcome to the API Testing Chatbot!")
-    while True:
-        data = await websocket.receive_text()
-        await websocket.send_text(f"🤖 Echo: {data}")  # Replace with chatbot logic
+    connected_clients.add(websocket)
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    try:
+        await websocket.send_json({"message": "Welcome to API Testing! Type 'list' to see available endpoints."})
+        
+        command = await websocket.receive_text()
+        if command.lower() == "list":
+            endpoints = list(api_map.keys())
+            await websocket.send_json({"message": f"Available Endpoints: {endpoints}"})
+            await websocket.send_json({"message": "Type the sequence of APIs you want to test (comma-separated)."})
+
+            # Wait for user input
+            sequence_input = await websocket.receive_text()
+            execution_sequence = [api.strip() for api in sequence_input.split(",") if api.strip() in api_map]
+        else:
+            await websocket.send_json({"message": "Invalid command. Please type 'list' first."})
+            await websocket.close()
+            return
+
+        await websocket.send_json({"message": f"Execution Sequence Confirmed: {execution_sequence}"})
+
+        # Loop through selected sequence and confirm payloads
+        prev_api = None
+        for api in execution_sequence:
+            method, endpoint = api.split(" ", 1)
+
+            # Ask for payload confirmation
+            payload = llm_gen.generate_payload(endpoint)
+            await websocket.send_json({"message": f"Suggested payload for {api}: {payload}"})
+            await websocket.send_json({"message": "Type 'yes' to confirm, or send a modified payload."})
+
+            user_payload = await websocket.receive_text()
+            if user_payload.lower() != "yes":
+                try:
+                    payload = json.loads(user_payload)  # User-provided payload
+                except json.JSONDecodeError:
+                    await websocket.send_json({"message": "Invalid JSON. Using suggested payload."})
+
+            result = await workflow_manager.execute_api(method, endpoint, payload)
+
+            # Update visualization
+            if prev_api:
+                await broadcast_update({"from": prev_api, "to": api})
+                visualizer.add_api_dependency(prev_api, api)
+
+            prev_api = api
+
+            # Send real-time execution updates
+            await websocket.send_json({
+                "api": api, 
+                "status": result["status_code"], 
+                "time": result["execution_time"]
+            })
+
+        await websocket.send_json({"message": "✅ API Execution Completed!"})
+    except WebSocketDisconnect:
+        logging.info("WebSocket disconnected.")
+    finally:
+        connected_clients.remove(websocket)
