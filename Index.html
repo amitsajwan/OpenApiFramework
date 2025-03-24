@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Execution & Graph</title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        #chat { width: 50%; float: left; padding: 10px; }
+        #graph { width: 50%; float: right; padding: 10px; }
+        #messages { height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; }
+        button { margin-top: 10px; padding: 10px; }
+        svg { width: 100%; height: 400px; border: 1px solid black; }
+    </style>
+</head>
+<body>
+
+    <h2>API Execution & Graph Visualization</h2>
+
+    <div id="chat">
+        <h3>Chat</h3>
+        <div id="messages"></div>
+        <button onclick="startChat()">Start API Execution</button>
+    </div>
+
+    <div id="graph">
+        <h3>Graph</h3>
+        <svg></svg>
+    </div>
+
+    <script>
+        const ws = new WebSocket("ws://localhost:8000/chat");
+
+        ws.onmessage = function(event) {
+            const msgDiv = document.getElementById("messages");
+            const msg = JSON.parse(event.data);
+            msgDiv.innerHTML += `<p>${msg.message || msg.api + " → " + msg.status}</p>`;
+            if (msg.api) updateGraph(msg.api);
+        };
+
+        function startChat() {
+            ws.send("start");
+        }
+
+        function updateGraph(api) {
+            fetch("/graph")
+                .then(response => response.json())
+                .then(data => renderGraph(data));
+        }
+
+        function renderGraph(data) {
+            d3.select("svg").selectAll("*").remove();
+            const nodes = data.nodes.map(d => ({ id: d }));
+            const links = data.edges.map(d => ({ source: d[0], target: d[1] }));
+
+            const svg = d3.select("svg"),
+                  width = +svg.attr("width"),
+                  height = +svg.attr("height");
+
+            const simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(100))
+                .force("charge", d3.forceManyBody().strength(-300))
+                .force("center", d3.forceCenter(width / 2, height / 2));
+
+            const link = svg.append("g")
+                .selectAll("line")
+                .data(links)
+                .enter().append("line")
+                .style("stroke", "#aaa");
+
+            const node = svg.append("g")
+                .selectAll("circle")
+                .data(nodes)
+                .enter().append("circle")
+                .attr("r", 10)
+                .style("fill", "steelblue");
+
+            node.append("title").text(d => d.id);
+
+            simulation.on("tick", () => {
+                link.attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                node.attr("cx", d => d.x)
+                    .attr("cy", d => d.y);
+            });
+        }
+    </script>
+
+</body>
+</html>
