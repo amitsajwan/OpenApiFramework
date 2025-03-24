@@ -63,4 +63,11 @@ if __name__ == "__main__":
     api_workflow = APIWorkflow(base_url, headers)
 
     api_sequence = [
-        "POST /
+        "POST /pet",
+        "GET /pet/{id}",
+        "PUT /pet/{id}",
+        "DELETE /pet/{id}"
+    ]
+
+    asyncio.run(api_workflow.run_workflow(api_sequence))
+    
