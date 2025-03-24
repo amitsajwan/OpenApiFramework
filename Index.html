@@ -49,8 +49,8 @@
             }
 
             if (data.graph) {
-                dagData = data.graph;
-                renderDAG();
+                console.log("Received DAG:", data.graph);
+                renderDAG(data.graph);
             }
         };
 
@@ -71,12 +71,17 @@
             ws.send(JSON.stringify({ action: "confirm_sequence", sequence: dagData.nodes }));
         }
 
-        function renderDAG() {
+        function renderDAG(data) {
+            if (!data || !data.nodes || !data.edges) {
+                console.error("Invalid DAG data received:", data);
+                return;
+            }
+
             d3.select("svg").selectAll("*").remove();
 
             const g = new dagreD3.graphlib.Graph().setGraph({});
-            dagData.nodes.forEach(node => g.setNode(node.id, { label: node.id, width: 100, height: 30 }));
-            dagData.edges.forEach(edge => g.setEdge(edge.source, edge.target));
+            data.nodes.forEach(node => g.setNode(node.id, { label: node.id, width: 100, height: 30 }));
+            data.edges.forEach(edge => g.setEdge(edge.source, edge.target));
 
             const svg = d3.select("svg"), inner = svg.append("g");
             const render = new dagreD3.render();
