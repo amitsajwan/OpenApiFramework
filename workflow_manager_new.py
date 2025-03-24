@@ -14,30 +14,38 @@ class APIWorkflowManager:
         self.headers = headers
         self.graph = StateGraph(ApiExecutionState)  # ✅ Passing ApiExecutionState is mandatory
 
-    def build_workflow(self, api_sequence):
-        """
-        Constructs the execution workflow from the user-modified DAG sequence.
-        """
-        previous_api = None
+def build_workflow(self, api_sequence):
+    """
+    Constructs the execution workflow from the user-modified DAG sequence.
+    Uses api_map to get method & endpoint from operation ID.
+    """
+    previous_api = None
 
-        for api in api_sequence:
-            method, endpoint = api.split(" ", 1)
+    for operation_id in api_sequence:
+        api_details = api_map.get(operation_id)  # ✅ Get method & path from api_map
+        if not api_details:
+            logging.error(f"❌ API not found in OpenAPI spec: {operation_id}")
+            continue
 
-            async def node_fn(state, method=method, endpoint=endpoint):
-                result = await state.executor.execute_api(method, endpoint)
-                state.last_api = endpoint
-                return state
+        method = api_details["method"]
+        endpoint = api_details["path"]
 
-            self.graph.add_node(endpoint, node_fn)
+        async def node_fn(state, method=method, endpoint=endpoint):
+            result = await state.executor.execute_api(method, endpoint)
+            state.last_api = endpoint
+            return state
 
-            if previous_api:
-                self.graph.add_edge(previous_api, endpoint)
+        self.graph.add_node(operation_id, node_fn)  # ✅ Use operation ID as node name
 
-            previous_api = endpoint
+        if previous_api:
+            self.graph.add_edge(previous_api, operation_id)  # ✅ Maintain sequence
 
-        return self.graph
+        previous_api = operation_id
 
-    async def execute_workflow(self, api_sequence):
+    return self.graph
+
+    
+async def execute_workflow(self, api_sequence):
         """
         Executes the workflow using LangGraph.
         """
