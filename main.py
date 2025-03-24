@@ -49,7 +49,7 @@ async def serve_ui():
 # --------------------------
 @app.websocket("/chat")
 async def websocket_endpoint(websocket: WebSocket):
-    """Handles WebSocket connections for chat & DAG-based API execution."""
+    """Handles WebSocket connections for chat & DAG updates."""
     await websocket.accept()
     connected_clients.add(websocket)
 
@@ -64,6 +64,19 @@ async def websocket_endpoint(websocket: WebSocket):
             if "list" in user_input:
                 await websocket.send_json({"message": f"Available APIs: {list(api_map.keys())}"})
 
+                # ✅ Populate DAG when listing APIs
+                default_sequence = list(api_map.keys())
+                workflow_manager.build_workflow(default_sequence)  
+                visualizer.reset_graph()  
+
+                prev_api = None
+                for api in default_sequence:
+                    if prev_api:
+                        visualizer.add_api_dependency(prev_api, api)
+                    prev_api = api
+
+                await websocket.send_json({"graph": json.loads(visualizer.get_execution_graph_json())})
+
             elif "modify sequence" in user_input:
                 graph_json = visualizer.get_execution_graph_json()
                 await websocket.send_json({"message": "Modify the DAG in UI, then confirm.", "graph": json.loads(graph_json)})
@@ -77,12 +90,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 dag_sequence = data.get("sequence", [])
 
                 # ✅ Populate DAG before execution
-                visualizer.reset_graph()  # Clear previous graph
+                visualizer.reset_graph()
                 prev_api = None
                 for api in dag_sequence:
                     if prev_api:
                         visualizer.add_api_dependency(prev_api, api)
                     prev_api = api
+
+                # ✅ Build LangGraph workflow
+                workflow_manager.build_workflow(dag_sequence)
 
                 await websocket.send_json({"message": f"✅ Sequence confirmed: {dag_sequence}"})
                 await websocket.send_json({"graph": json.loads(visualizer.get_execution_graph_json())})
