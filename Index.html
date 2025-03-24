@@ -29,8 +29,8 @@
         </div>
 
         <div id="dag">
-            <h3>Execution Flow (Drag to Reorder)</h3>
-            <svg></svg>
+            <h3>Execution Flow</h3>
+            <svg><g></g></svg>
             <button onclick="confirmSequence()">Confirm & Run</button>
         </div>
     </div>
@@ -79,21 +79,25 @@
 
             d3.select("svg").selectAll("*").remove();
 
-            const g = new dagreD3.graphlib.Graph().setGraph({});  // ✅ Ensure graph is initialized
+            const g = new dagreD3.graphlib.Graph().setGraph({ rankdir: "LR" });
 
             data.nodes.forEach(node => {
-                g.setNode(node.id, { label: node.id, width: 100, height: 30 });  // ✅ Ensure each node has a label
+                g.setNode(node.id, { label: node.id, width: 120, height: 40, style: "fill: lightblue; stroke: #000;" });
             });
 
             data.edges.forEach(edge => {
-                g.setEdge(edge.source, edge.target);  // ✅ Ensure edges are properly set
+                g.setEdge(edge.source, edge.target, { arrowhead: "vee" });
             });
 
             const svg = d3.select("svg"),
-                  inner = svg.append("g");
+                  inner = svg.select("g");
+
+            if (inner.empty()) {
+                inner = svg.append("g");
+            }
 
             const render = new dagreD3.render();
-            render(inner, g);  // ✅ Ensure `render(inner, g)` has valid input
+            render(inner, g);
 
             svg.call(d3.zoom().on("zoom", ({ transform }) => inner.attr("transform", transform)));
         }
