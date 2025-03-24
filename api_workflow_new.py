@@ -2,7 +2,7 @@ import asyncio
 import time
 import logging
 from api_executor import APIExecutor
-from workflow_manager import APIWorkflowManager
+from workflow_manager_new import APIWorkflowManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
