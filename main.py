@@ -1,11 +1,13 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import uvicorn
 import json
 import logging
+from pathlib import Path  # ✅ To serve index.html properly
 from openapi_parser import OpenAPIParser
-from workflow_manager_new import APIWorkflowManager
-from graph_visualization_new import APIGraphVisualizer
+from workflow_manager import APIWorkflowManager
+from graph_visualization import APIGraphVisualizer
 
 app = FastAPI()
 
@@ -32,6 +34,15 @@ workflow_manager = APIWorkflowManager(base_url, auth_headers)
 visualizer = APIGraphVisualizer()
 connected_clients = set()
 dag_sequence = []  # Stores the user-modified execution order
+
+# --------------------------
+# Serve UI (index.html)
+# --------------------------
+
+@app.get("/")
+async def serve_ui():
+    """Serves the static index.html file."""
+    return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 # --------------------------
 # WebSocket: Chat & DAG Updates
