@@ -1,6 +1,8 @@
 import asyncio
+import json
 import time
 import logging
+import websockets
 from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langchain.tools import tool
@@ -10,25 +12,37 @@ from llm_sequence_generator import LLMSequenceGenerator
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Initialize MemorySaver for tracking execution results
 memory = MemorySaver()
 
 class APIWorkflow:
-    def __init__(self, base_url, headers, use_llm=True):
+    def __init__(self, base_url, headers, websocket_uri="ws://localhost:8000/ws", use_llm=True):
         """
-        Initialize API Workflow with APIExecutor and LangGraph state management.
+        Initialize API Workflow with APIExecutor, WebSocket, and LangGraph state management.
         """
         self.api_executor = APIExecutor(base_url, headers)
         self.llm_generator = LLMSequenceGenerator() if use_llm else None
         self.workflow = StateGraph()
+        self.websocket_uri = websocket_uri  # WebSocket for real-time updates
+
+    async def send_graph_update(self, from_api, to_api):
+        """
+        Send API execution flow updates to WebSocket for real-time visualization.
+        """
+        try:
+            async with websockets.connect(self.websocket_uri) as websocket:
+                update = {"from": from_api, "to": to_api}
+                await websocket.send(json.dumps(update))
+                logging.info(f"Sent graph update: {from_api} -> {to_api}")
+        except Exception as e:
+            logging.error(f"WebSocket error while sending graph update: {str(e)}")
 
     async def execute_api(self, method: str, endpoint: str, payload: dict = None, is_first_run=True):
         """
-        Execute an API request, track execution time, and store important response data.
+        Execute an API request and send real-time execution updates.
         """
         start_time = time.time()
 
-        # Generate payload using LLM (only for the first run)
+        # Generate payload using LLM (first run) or use stored values
         if is_first_run and self.llm_generator:
             payload = self.llm_generator.generate_payload(endpoint)
         else:
@@ -38,7 +52,7 @@ class APIWorkflow:
             result = await self.api_executor.execute_api(method, endpoint, payload)
             result["execution_time"] = round(time.time() - start_time, 2)
 
-            # Store response data for dependent requests
+            # Store response data for dependencies
             memory.save(f"{method} {endpoint}", result)
             if method == "POST" and "id" in result["response"]:
                 memory.save(f"created_id_{endpoint}", result["response"]["id"])
@@ -100,20 +114,29 @@ class APIWorkflow:
 
     async def run_workflow(self, api_sequence, websocket=None):
         """
-        Run the LangGraph workflow and stream execution updates to WebSocket.
+        Run the LangGraph workflow, send real-time execution updates & update visualization.
         """
         workflow = self.build_workflow(api_sequence)
 
         async def execute_and_stream(state):
+            prev_api = None
             for api in api_sequence:
                 result = await self.execute_api(*api.split(" ", 1))
 
-                # Stream real-time updates if WebSocket is connected
+                # Send real-time update for dependencies
+                if prev_api:
+                    await self.send_graph_update(prev_api, api)  # ✅ FIXED: Now updates visualization dynamically
+                prev_api = api
+
+                # Stream execution progress
                 if websocket:
-                    await websocket.send_json({
-                        "api": api, 
-                        "status": result["status_code"], 
-                        "time": result["execution_time"]
-                    })
+                    try:
+                        await websocket.send_json({
+                            "api": api, 
+                            "status": result["status_code"], 
+                            "time": result["execution_time"]
+                        })
+                    except Exception as e:
+                        logging.error(f"WebSocket error while sending execution status: {str(e)}")
 
         await execute_and_stream({})
