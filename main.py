@@ -66,22 +66,26 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif "modify sequence" in user_input:
                 graph_json = visualizer.get_execution_graph_json()
-                if not graph_json or "nodes" not in graph_json or "edges" not in graph_json:
-                    await websocket.send_json({"message": "❌ Error: Invalid DAG structure. Try again."})
-                else:
-                    await websocket.send_json({"message": "Modify the DAG in UI, then confirm.", "graph": json.loads(graph_json)})
+                await websocket.send_json({"message": "Modify the DAG in UI, then confirm.", "graph": json.loads(graph_json)})
 
             elif "show dag" in user_input:
                 graph_json = visualizer.get_execution_graph_json()
-                if not graph_json or "nodes" not in graph_json or "edges" not in graph_json:
-                    await websocket.send_json({"message": "❌ Error: No valid DAG found."})
-                else:
-                    await websocket.send_json({"message": "Current DAG execution flow:", "graph": json.loads(graph_json)})
+                await websocket.send_json({"message": "Current DAG execution flow:", "graph": json.loads(graph_json)})
 
             elif action == "confirm_sequence":
                 global dag_sequence
                 dag_sequence = data.get("sequence", [])
+
+                # ✅ Populate DAG before execution
+                visualizer.reset_graph()  # Clear previous graph
+                prev_api = None
+                for api in dag_sequence:
+                    if prev_api:
+                        visualizer.add_api_dependency(prev_api, api)
+                    prev_api = api
+
                 await websocket.send_json({"message": f"✅ Sequence confirmed: {dag_sequence}"})
+                await websocket.send_json({"graph": json.loads(visualizer.get_execution_graph_json())})
 
             elif action == "start_execution":
                 if not dag_sequence:
@@ -89,9 +93,19 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
 
                 await websocket.send_json({"message": f"🚀 Executing DAG sequence: {dag_sequence}"})
-                results = await workflow_manager.execute_workflow(dag_sequence)
 
-                for api, result in results.items():
+                prev_api = None
+                results = {}
+
+                for api in dag_sequence:
+                    result = await workflow_manager.execute_workflow([api])
+                    results[api] = result
+
+                    if prev_api:
+                        visualizer.add_api_dependency(prev_api, api)
+
+                    prev_api = api
+
                     await websocket.send_json({
                         "api": api,
                         "status": result.get("status_code", "Unknown"),
@@ -107,9 +121,3 @@ async def websocket_endpoint(websocket: WebSocket):
         logging.info("WebSocket disconnected.")
     finally:
         connected_clients.remove(websocket)
-
-# --------------------------
-# Run the Application
-# --------------------------
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
