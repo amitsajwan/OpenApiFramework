@@ -1,41 +1,58 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API Testing Chat</title>
+    <title>API Testing Chat & DAG</title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre-d3/0.6.4/dagre-d3.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; }
-        .chat-container { width: 50%; margin: auto; background: white; padding: 10px; border-radius: 5px; box-shadow: 0px 0px 10px #ccc; }
+        .container { display: flex; justify-content: space-between; padding: 20px; }
+        #chat, #dag { width: 48%; background: white; padding: 10px; border-radius: 5px; box-shadow: 0px 0px 10px #ccc; }
         #messages { height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: #f9f9f9; text-align: left; }
         input { width: 80%; padding: 10px; margin-top: 10px; border: 1px solid #ccc; border-radius: 5px; }
         button { padding: 10px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
         button:hover { background: #0056b3; }
+        svg { width: 100%; height: 400px; border: 1px solid black; }
     </style>
 </head>
 <body>
 
-    <h2>API Testing Chat</h2>
-    <div class="chat-container">
-        <div id="messages"></div>
-        <input type="text" id="chatInput" placeholder="Type here..." onkeypress="handleKeyPress(event)">
-        <button onclick="sendMessage()">Send</button>
+    <h2>API Testing Chat & Execution Flow</h2>
+    <div class="container">
+        <div id="chat">
+            <h3>Chat</h3>
+            <div id="messages"></div>
+            <input type="text" id="chatInput" placeholder="Type here..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+
+        <div id="dag">
+            <h3>Execution Sequence (Drag to Reorder)</h3>
+            <svg></svg>
+            <button onclick="confirmSequence()">Confirm & Run</button>
+        </div>
     </div>
 
     <script>
         const ws = new WebSocket("ws://localhost:8000/chat");
+        let dagData = { nodes: [], edges: [] };
 
         ws.onmessage = function(event) {
             const msgDiv = document.getElementById("messages");
             const data = JSON.parse(event.data);
-            msgDiv.innerHTML += `<p>${data.message || data.api + " → " + data.status}</p>`;
-            msgDiv.scrollTop = msgDiv.scrollHeight;
-        };
 
-        function handleKeyPress(event) {
-            if (event.key === "Enter") sendMessage();
-        }
+            if (data.message) {
+                msgDiv.innerHTML += `<p>${data.message}</p>`;
+                msgDiv.scrollTop = msgDiv.scrollHeight;
+            }
+
+            if (data.graph) {
+                dagData = data.graph;
+                renderDAG();
+            }
+        };
 
         function sendMessage() {
             const input = document.getElementById("chatInput");
@@ -44,6 +61,28 @@
                 ws.send(JSON.stringify({ user_input: message }));
                 input.value = "";
             }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === "Enter") sendMessage();
+        }
+
+        function confirmSequence() {
+            ws.send(JSON.stringify({ action: "confirm_sequence", sequence: dagData.nodes }));
+        }
+
+        function renderDAG() {
+            d3.select("svg").selectAll("*").remove();
+
+            const g = new dagreD3.graphlib.Graph().setGraph({});
+            dagData.nodes.forEach(node => g.setNode(node.id, { label: node.id, width: 100, height: 30 }));
+            dagData.edges.forEach(edge => g.setEdge(edge.source, edge.target));
+
+            const svg = d3.select("svg"), inner = svg.append("g");
+            const render = new dagreD3.render();
+            render(inner, g);
+
+            svg.call(d3.zoom().on("zoom", ({ transform }) => inner.attr("transform", transform)));
         }
     </script>
 
