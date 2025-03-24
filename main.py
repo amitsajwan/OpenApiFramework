@@ -47,7 +47,6 @@ async def serve_ui():
 # --------------------------
 # WebSocket: Chat & DAG Updates
 # --------------------------
-
 @app.websocket("/chat")
 async def websocket_endpoint(websocket: WebSocket):
     """Handles WebSocket connections for chat & DAG-based API execution."""
@@ -62,28 +61,30 @@ async def websocket_endpoint(websocket: WebSocket):
             action = data.get("action")
             user_input = data.get("user_input", "").lower()
 
-            # Handle DAG sequence confirmation
-            if action == "confirm_sequence":
+            if "list" in user_input:
+                await websocket.send_json({"message": f"Available APIs: {list(api_map.keys())}"})
+
+            elif "modify sequence" in user_input:
+                await websocket.send_json({"message": "Modify the DAG in the UI, then confirm."})
+                await websocket.send_json({"graph": visualizer.get_execution_graph_json()})  # ✅ Sends DAG to UI
+
+            elif "show dag" in user_input:
+                graph_json = visualizer.get_execution_graph_json()
+                await websocket.send_json({"message": "Current DAG execution flow:", "graph": graph_json})  # ✅ Shows DAG
+
+            elif action == "confirm_sequence":
                 global dag_sequence
                 dag_sequence = data.get("sequence", [])
                 await websocket.send_json({"message": f"Sequence confirmed: {dag_sequence}"})
 
-            # List available APIs
-            elif "list" in user_input:
-                await websocket.send_json({"message": f"Available APIs: {list(api_map.keys())}"})
-
-            # Execute user-modified sequence using LangGraph
             elif action == "start_execution":
                 if not dag_sequence:
                     await websocket.send_json({"message": "No sequence selected! Modify the DAG first."})
                     continue
 
                 await websocket.send_json({"message": f"Executing DAG sequence: {dag_sequence}"})
-
-                # Run the LangGraph-based execution
                 results = await workflow_manager.execute_workflow(dag_sequence)
 
-                # Send execution results
                 for api, result in results.items():
                     await websocket.send_json({
                         "api": api,
@@ -92,10 +93,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
 
                 await websocket.send_json({"message": "✅ Execution Completed!"})
-
-            # Fetch current DAG structure
-            elif action == "get_graph":
-                await websocket.send_json({"graph": visualizer.get_execution_graph_json()})
 
             else:
                 await websocket.send_json({"message": "Unknown command. Try 'List APIs' or modify the DAG."})
