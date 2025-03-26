@@ -13,34 +13,45 @@ class LLMSequenceGenerator:
             openai_api_key=azure_key
         )
 
-    def generate_sequence(self, api_map):
-        """Generate API execution order using LLM and RunnableSequence."""
+    def generate_graph(self, api_map):
+        """Generate API execution graph (nodes & edges) dynamically."""
         prompt = PromptTemplate(
             template="""
             Given the following OpenAPI endpoints, determine the correct execution order.
-            Always return JSON in this format:
+    
+            Rules:
+            - **Identify dependencies:** If an API needs data from another, it must run **after** it.
+            - **Parallel execution:** If APIs are independent, they can run **in parallel**.
+            - **Always return JSON** with `nodes` (all APIs) and `edges` (execution order).
+    
+            **Example Output:**
             {{
-                "execution_order": ["POST /pet", "GET /pet/{petId}", "PUT /pet", "DELETE /pet/{petId}"]
+                "nodes": ["POST /user", "GET /user/{userId}", "GET /users", "DELETE /user/{userId}"],
+                "edges": [
+                    ["POST /user", "GET /user/{userId}"],
+                    ["GET /user/{userId}", "DELETE /user/{userId}"]
+                ]
             }}
-
-            Endpoints:
+    
+            **OpenAPI Endpoints:**
             {api_list}
             """,
             input_variables=["api_list"]
         )
-
+    
         api_list = "\n".join(api_map.keys())
-
-        sequence = (
+    
+        graph_structure = (
             RunnablePassthrough()
             | RunnableLambda(lambda _: {"api_list": api_list})
             | prompt
             | self.llm
-            | RunnableLambda(lambda response: json.loads(response.content).get("execution_order", []))
+            | RunnableLambda(lambda response: json.loads(response.content))
         )
-
-        return sequence.invoke({})  # Return ordered API list
-
+    
+        return graph_structure.invoke({})
+    
+        
     def generate_payload(self, endpoint_details):
         """Generate a sample JSON payload for POST/PUT requests."""
         prompt = PromptTemplate(
