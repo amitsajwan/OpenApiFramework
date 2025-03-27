@@ -64,3 +64,30 @@ async def execute_api(state: APIExecutionState, api_name: str, request_func):
     }
 
     return state
+
+def generate_report(states: List[APIExecutionState]):
+    """
+    Generates a summary report of API execution across multiple users.
+    """
+    total_time = time.time() - states[0].start_time  # Total execution time
+    api_summary = {}
+
+    # Aggregate API execution metrics
+    for state in states:
+        for api, metrics in state.api_metrics.items():
+            if api not in api_summary:
+                api_summary[api] = {"count": 0, "total_time": 0.0}
+
+            api_summary[api]["count"] += metrics["count"]
+            api_summary[api]["total_time"] += metrics["total_time"]
+
+    # Print report
+    print("\n📊 API Load Test Report 📊\n")
+    for api, metrics in api_summary.items():
+        avg_time = metrics["total_time"] / metrics["count"]
+        print(f"🔹 {api}:")
+        print(f"   - Calls: {metrics['count']}")
+        print(f"   - Total Time: {metrics['total_time']:.2f}s")
+        print(f"   - Avg Time per Call: {avg_time:.2f}s\n")
+
+    print(f"🚀 Total Execution Time: {total_time:.2f}s\n")
